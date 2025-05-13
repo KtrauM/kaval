@@ -100,6 +100,7 @@ class KaGenGraph(InputGraph):
         kwargs = kwargs.copy()
         if not "type" in kwargs:
             raise ValueError("KaGen graph requires a type")
+        self.type = kwargs.get("type")
         try:
             self.n = kwargs.get("n", 1 << int(kwargs["N"]))
         except TypeError:
@@ -108,6 +109,7 @@ class KaGenGraph(InputGraph):
             self.m = kwargs.get("m", 1 << int(kwargs["M"]))
         except TypeError:
             self.m = None
+        kwargs.pop("type", None)
         kwargs.pop("n", None)
         kwargs.pop("N", None)
         kwargs.pop("m", None)
@@ -130,15 +132,16 @@ class KaGenGraph(InputGraph):
 
     def args(self, mpi_ranks, threads_per_rank, escape):
         p = mpi_ranks * threads_per_rank
-        params = self.stringify_params()
-        if self.n:
-            params.append(f"n={self.get_n(p)}")
-        if self.m:
-            params.append(f"m={self.get_m(p)}")
-        kagen_option_string = ";".join(params)
-        if escape:
-            kagen_option_string = '"{}"'.format(kagen_option_string)
-        return ["--kagen_option_string", kagen_option_string]
+        if not self.n or not self.m:
+            raise ValueError("n or m is not defined")
+        params = [self.type, "-n", str(self.get_n(p)), "-m", str(self.get_m(p)), "-f", "edgelist", "-o", self.output_path(p)]
+        for key, value in self.params.items():
+            if isinstance(value, bool):
+                params.append(key)
+            else:
+                params.extend([f"--{key}", str(value)])
+        
+        return params
 
     def stringify_params(self):
         param_strings = []
@@ -148,6 +151,10 @@ class KaGenGraph(InputGraph):
             else:
                 param_strings.append(f"{key}={value}")
         return param_strings
+
+    def output_path(self, p):
+        path = "_".join([self.type, f"n{int(math.log2(self.n))}", f"m{int(math.log2(self.m))}", "weak", f"cores{p}"])
+        return  "../../../graphs/"+ path
 
     @property
     def name(self):
@@ -159,9 +166,97 @@ class KaGenGraph(InputGraph):
         params += self.stringify_params()
         if self.scale_weak:
             params.append("weak")
-        name = f"KaGen_{'_'.join(params)}"
+        name = f"{self.type}_{'_'.join(params)}"
         return slugify.slugify(name)
 
+class IngestHavoqGT(KaGenGraph):
+    def args(self, mpi_ranks, threads_per_rank, escape):
+        p = mpi_ranks * threads_per_rank
+        if not self.n or not self.m:
+            raise ValueError("n or m is not defined")
+        params = [self.input_path(p), "-o", self.output_path(p), "-f", "8"]
+        return params
+
+    def input_path(self, p):
+        path = "_".join([self.type, f"n{int(math.log2(self.n))}", f"m{int(math.log2(self.m))}", "weak", f"cores{p}"])
+        return  "../../../graphs/" + path
+
+    def output_path(self, p):
+        path = "_".join([self.type, f"n{int(math.log2(self.n))}", f"m{int(math.log2(self.m))}", "weak", f"cores{p}"])
+        return  "../../../graphs/havoqgt-databases/" + path
+
+class RunHavoqGT(KaGenGraph):
+    def args(self, mpi_ranks, threads_per_rank, escape):
+        p = mpi_ranks * threads_per_rank
+        if not self.n or not self.m:
+            raise ValueError("n or m is not defined")
+        params = ["-i", self.input_path(p)]
+        return params
+
+    def input_path(self, p):
+        path = "_".join([self.type, f"n{int(math.log2(self.n))}", f"m{int(math.log2(self.m))}", "weak", f"cores{p}"])
+        return  "../../../graphs/havoqgt-databases/" + path
+
+class RunGrarrph(KaGenGraph):
+    def args(self, mpi_ranks, threads_per_rank, escape):
+        p = mpi_ranks * threads_per_rank
+        params = []
+        params.append(f"type={self.type}")
+        if self.n:
+            params.append(f"n={self.get_n(p)}")
+        if self.m:
+            params.append(f"m={self.get_m(p)}")
+        params.extend(self.stringify_params())
+        kagen_option_string = ";".join(params)
+        if escape:
+            kagen_option_string = '"{}"'.format(kagen_option_string)
+        return ["-g", kagen_option_string]
+
+    def stringify_params(self):
+        param_strings = []
+        for key, value in self.params.items():
+            if isinstance(value, bool):
+                param_strings.append(key)
+            else:
+                param_strings.append(f"{key}={value}")
+        return param_strings
+
+class RunCombBLAS_FileInput(KaGenGraph):
+    def args(self, mpi_ranks, threads_per_rank, escape):
+        p = mpi_ranks * threads_per_rank
+        if not self.n or not self.m:
+            raise ValueError("n or m is not defined")
+        params = ["Input", self.input_path(p)]
+        return params
+
+    def input_path(self, p):
+        path = "_".join([self.type, f"n{int(math.log2(self.n))}", f"m{int(math.log2(self.m))}", "weak", f"cores{p}"])
+        return  "../../../graphs/"+ path
+
+class RunCombBLAS_KaGen(KaGenGraph):
+    def args(self, mpi_ranks, threads_per_rank, escape):
+        p = mpi_ranks * threads_per_rank
+        params = [f"type={self.type}"]
+        if self.n:
+            params.append(f"n={self.get_n(p)}")
+        if self.m:
+            params.append(f"m={self.get_m(p)}")
+        kagen_option_string = ";".join(params)
+        if escape:
+            kagen_option_string = '"{}"'.format(kagen_option_string)
+        return ["KaGen", kagen_option_string]
+
+class RunLACC(KaGenGraph):
+    def args(self, mpi_ranks, threads_per_rank, escape):
+        p = mpi_ranks * threads_per_rank
+        if not self.n or not self.m:
+            raise ValueError("n or m is not defined")
+        params = ["-I", "triples", "-M", self.input_path(p)]
+        return params
+
+    def input_path(self, p):
+        path = "_".join([self.type, f"n{int(math.log2(self.n))}", f"m{int(math.log2(self.m))}", "weak", f"cores{p}"])
+        return  "../../../graphs/"+ path
 
 class DummyInstance(InputGraph):
     def __init__(self, **kwargs):
@@ -269,6 +364,18 @@ def load_suite_from_yaml(path):
                     inputs.append(KaGenGraph(**graph))
                 elif generator == "dummy":
                     inputs.append(DummyInstance(**graph))
+                elif generator == "ingest-havoqgt":
+                    inputs.append(IngestHavoqGT(**graph))
+                elif generator == "run-havoqgt":
+                    inputs.append(RunHavoqGT(**graph))
+                elif generator == "run-grarrph":
+                    inputs.append(RunGrarrph(**graph))
+                elif generator == "run-combblas-fileinput":
+                    inputs.append(RunCombBLAS_FileInput(**graph))
+                elif generator == "run-combblas-kagen":
+                    inputs.append(RunCombBLAS_KaGen(**graph))
+                elif generator == "run-lacc":
+                    inputs.append(RunLACC(**graph))
                 else:
                     raise ValueError(
                         f"'{generator}' is an unsupported argument for a graph generator. Use ['kagen', 'dummy'] instead."
