@@ -241,6 +241,7 @@ class RunCombBLAS_KaGen(KaGenGraph):
             params.append(f"n={self.get_n(p)}")
         if self.m:
             params.append(f"m={self.get_m(p)}")
+        params.extend(self.stringify_params())
         kagen_option_string = ";".join(params)
         if escape:
             kagen_option_string = '"{}"'.format(kagen_option_string)
